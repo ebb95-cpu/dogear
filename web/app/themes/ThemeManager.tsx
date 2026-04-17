@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { sbBrowser } from "@/lib/supabase";
+import { sbBrowser } from "@/lib/supabase-browser";
 import type { Tag } from "@/lib/types";
 
 export default function ThemeManager({ initial }: { initial: Tag[] }) {

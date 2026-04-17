@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { sbServer } from "@/lib/supabase";
+import { sbServer } from "@/lib/supabase-server";
 
 export const revalidate = 0;
 

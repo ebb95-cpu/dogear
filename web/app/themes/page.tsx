@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { sbServer } from "@/lib/supabase";
+import { sbServer } from "@/lib/supabase-server";
 import ThemeManager from "./ThemeManager";
 import type { Tag } from "@/lib/types";
 

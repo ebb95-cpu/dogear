@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sbRoute } from "@/lib/supabase";
+import { sbRoute } from "@/lib/supabase-server";
 
 /**
  * POST /api/book-summary  { bookId }
