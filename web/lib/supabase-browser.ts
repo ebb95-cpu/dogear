@@ -1,9 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
-/** Browser-side Supabase client (RLS enforced). */
+/** Browser-side Supabase client (session stored in cookies, shared with server). */
 export function sbBrowser() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  return createClientComponentClient();
 }
