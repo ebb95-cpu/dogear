@@ -1,0 +1,3 @@
+# Scratch / credentials (never commit)
+.credentials-scratch
+kobo-install-bundle/config.env
