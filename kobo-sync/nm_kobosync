@@ -1,0 +1,4 @@
+# NickelMenu entry — adds a "Sync highlights" item to your Kobo menu.
+# Copy this file to /mnt/onboard/.adds/nm/ on your Kobo.
+
+menu_item :main    :Sync highlights :cmd_spawn :quiet :sh /mnt/onboard/.adds/dogear/kobo-sync.sh
