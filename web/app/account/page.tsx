@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { sbServer } from "@/lib/supabase-server";
 import LogoutButton from "./LogoutButton";
+import DeviceTokenManager from "./DeviceTokenManager";
 
 export const revalidate = 0;
 
@@ -20,16 +21,7 @@ export default async function AccountPage() {
       <p className="text-sm text-[color:var(--muted)]">Signed in as {user.email}</p>
       <p className="mt-4 text-sm">{bc ?? 0} books · {hc ?? 0} highlights</p>
 
-      <h2 className="text-sm uppercase tracking-widest text-[color:var(--muted)] mt-10 mb-3">
-        Your Kobo sync token
-      </h2>
-      <p className="text-sm max-w-prose mb-3">
-        Paste this into the Kobo sync script (one time). Your sync script uses it to upload
-        highlights to your account. Keep it private.
-      </p>
-      <code className="block bg-white border border-[color:var(--rule)] px-3 py-2 text-xs break-all select-all">
-        {user.id}
-      </code>
+      <DeviceTokenManager supabaseUrl={process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""} />
 
       <div className="mt-10"><LogoutButton /></div>
     </section>

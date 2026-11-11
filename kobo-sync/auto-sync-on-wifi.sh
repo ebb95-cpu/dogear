@@ -1,16 +1,9 @@
 #!/bin/sh
-# auto-sync-on-wifi.sh
-# Optional: run kobo-sync.sh automatically whenever the Kobo connects to WiFi.
-# Install by adding this line to /etc/init.d/rcS (via KSM) OR by installing it
-# as a udev action. The simplest reliable approach on stock Nickel is to use
-# NickelDBus and subscribe to wifi-up events; see docs/03-install-on-kobo.md.
-#
-# Here we just loop every 5 minutes while on WiFi.
-ROOT="/mnt/onboard/.adds/dogear"
+# Compatibility entry point. Older instructions said to loop forever and ping
+# every five minutes. That loop is not installed by anything in this repo, and
+# it would keep the radio working while the device is asleep on a charger.
+# This file now performs one wifi-triggered attempt and exits.
+# Prefer the udev hook in KoboRoot.tgz, which runs this only when Wi-Fi comes up.
 
-while true; do
-  if ping -c1 -W2 1.1.1.1 >/dev/null 2>&1; then
-    sh "$ROOT/kobo-sync.sh" >/dev/null 2>&1 || true
-  fi
-  sleep 300
-done
+here=$(CDPATH= cd "$(dirname "$0")" && pwd)
+exec /bin/sh "$here/kobo-sync.sh" wifi

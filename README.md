@@ -28,7 +28,7 @@ Every passage you dogear on your Kobo comes back to you a few at a time.
    a passage                                                      from any browser
 ```
 
-1. A tiny shell script on your Kobo watches `KoboReader.sqlite` and pushes new highlights over WiFi to Supabase.
+1. A shell script on the Kobo reads highlight rows from `KoboReader.sqlite` and, when Wi-Fi connects, POSTs them to your Supabase project with a revocable per-account token.
 2. Supabase stores them (Postgres) and handles your login (magic link email).
 3. The web app on Vercel reads from Supabase and renders the UI.
 
@@ -42,7 +42,8 @@ Everything in this repo runs on free tiers.
 dogear/
 ├── README.md                 ← you are here
 ├── supabase/
-│   └── schema.sql            ← paste this into Supabase SQL editor
+│   ├── schema.sql            ← paste this into Supabase SQL editor
+│   └── migrations/           ← upgrade an existing project; does not delete highlights
 ├── web/                      ← Next.js app, deploy to Vercel
 │   ├── app/                  ← pages (timeline, books, daily review)
 │   ├── components/
@@ -50,9 +51,10 @@ dogear/
 │   ├── package.json
 │   └── .env.example
 ├── kobo-sync/
-│   ├── install-on-kobo.md    ← how to put the sync script on your Kobo
 │   ├── kobo-sync.sh          ← the sync script itself
-│   └── nm_kobosync           ← NickelMenu entry (adds "Sync highlights" menu item)
+│   ├── extract.awk           ← highlight export used by the script
+│   ├── nm_kobosync           ← NickelMenu entries (manual sync and status)
+│   └── dist/KoboRoot.tgz     ← Wi-Fi trigger only; no keys and no database
 └── docs/
     ├── 01-setup-supabase.md
     ├── 02-deploy-web-app.md
@@ -72,7 +74,7 @@ dogear/
 3. **Install the sync script on your Kobo** (via NickelMenu, ~5 min).
    See `docs/03-install-on-kobo.md`.
 
-4. **Highlight something on your Kobo** → it shows up in your web app within a minute.
+4. **Highlight something on your Kobo.** It uploads the next time the Kobo connects to Wi-Fi, or when you tap **Dogear sync highlights**.
 
 ---
 
@@ -86,9 +88,6 @@ on the device itself. The `Bookmark` table has:
 - `Annotation`   — any note you wrote
 - `DateCreated`  — when you highlighted it
 
-Kobo's built-in BusyBox shell means you can `curl` from the device once it's on WiFi.
-That's all the sync script needs — no jailbreak, no firmware replacement.
+The sync script runs in the Kobo's shell when Wi-Fi comes up, and again from a NickelMenu item if you ask it to. It uses `curl` when the firmware has it, and `wget` otherwise. The stock reader is unchanged.
 
-The only device-side add-on is **NickelMenu** (https://pgaskin.net/NickelMenu/), a
-tiny, reversible utility that adds a menu item to your Kobo. It's the standard way
-to trigger custom scripts and has a large community.
+**NickelMenu** (https://pgaskin.net/NickelMenu/) adds the manual sync and status items. A small `KoboRoot.tgz` adds the Wi-Fi trigger. Neither one is a background program on your computer. See `docs/03-install-on-kobo.md`.

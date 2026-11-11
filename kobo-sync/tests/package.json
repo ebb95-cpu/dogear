@@ -1,0 +1,8 @@
+{
+  "name": "dogear-sync-tests",
+  "private": true,
+  "description": "Simulated tests for the Kobo sync script and ingest SQL. Not installed on a device.",
+  "dependencies": {
+    "@electric-sql/pglite": "0.3.14"
+  }
+}

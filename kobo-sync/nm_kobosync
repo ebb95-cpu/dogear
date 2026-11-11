@@ -1,4 +1,14 @@
-# NickelMenu entry — adds a "Sync highlights" item to your Kobo menu.
-# Copy this file to /mnt/onboard/.adds/nm/ on your Kobo.
+# Dogear menu entries. Overwrite /mnt/onboard/.adds/nm/nm_kobosync with this file.
+#
+# NickelMenu splits on ":" and then passes the REST of the line to /bin/sh -c.
+# The quiet flag is a prefix of that command, "quiet:" with no space before the
+# command. A space (":quiet :sh ...") runs a program named "quiet" and never
+# starts the sync script.
+# nickel_wifi returns before Wi-Fi has an address. chain_always still starts
+# the script, and the script waits a bounded time for an address.
 
-menu_item :main    :Sync highlights :cmd_spawn :quiet :sh /mnt/onboard/.adds/dogear/kobo-sync.sh
+menu_item :main :Dogear sync highlights :nickel_wifi :autoconnect
+chain_always :cmd_spawn :quiet:sh /mnt/onboard/.adds/dogear/kobo-sync.sh manual
+menu_item :main :Dogear sync status :cmd_output :4000:sh /mnt/onboard/.adds/dogear/kobo-sync.sh status
+menu_item :reader :Dogear sync highlights :nickel_wifi :autoconnect
+chain_always :cmd_spawn :quiet:sh /mnt/onboard/.adds/dogear/kobo-sync.sh manual

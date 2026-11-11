@@ -1,0 +1,33 @@
+Dogear Kobo installer
+
+KoboRoot.tgz only adds a Wi-Fi trigger under /usr/local/dogear and
+/etc/udev/rules.d. It contains no config, no database, and no API key.
+The user/ folder is what goes on the visible Kobo volume.
+
+Follow docs/03-install-on-kobo.md for the full install, the on-device
+checks, and rollback. Short version:
+
+1. Run supabase/migrations/20261111_device_ingest.sql in the Supabase SQL editor.
+2. On the website account page, create a Kobo token. Put SUPABASE_URL, the
+   anon public key, and DOGEAR_INGEST_TOKEN in config.env. Do not put a
+   service role key on the Kobo. If one was stored there before, regenerate it.
+3. Copy user/kobo-sync.sh, extract.awk, auto-sync-on-wifi.sh, and config.env
+   to KOBOeReader/.adds/dogear/ (create the folder). Do not copy a filled
+   config over USB from a shared machine without checking who can read it.
+4. Overwrite KOBOeReader/.adds/nm/nm_kobosync with user/nm_kobosync.
+5. If NickelMenu is not already installed, install it from
+   https://pgaskin.net/NickelMenu/ and reboot before this package.
+6. Copy KoboRoot.tgz to KOBOeReader/.kobo/KoboRoot.tgz and eject. The Kobo
+   reboots and installs the trigger. This is the same install channel
+   NickelMenu uses. It does not replace the stock reader.
+7. On the Kobo, open Dogear sync status. It must not show the token or any
+   key. Then Dogear sync highlights, then status again.
+8. After a firmware update, copy KoboRoot.tgz into .kobo again. The files in
+   .adds stay. The menu still works if the trigger was wiped.
+
+Rollback without another reboot package: delete .adds/nm/nm_kobosync and
+.adds/dogear/kobo-sync.sh. The Wi-Fi hook then does nothing. Cloud highlights
+are not deleted. To drop tokens on the server, run the rollback SQL, which
+also does not delete highlights.
+
+Do not copy KoboReader.sqlite off the device into chat, email, or git.

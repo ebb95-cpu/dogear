@@ -1,0 +1,7 @@
+# Dogear: start a detached hook when the stock Wi-Fi interface appears or comes up.
+# wlan* is the interface name used by current 4.x stock firmware. usb0 is not
+# matched, so plugging into a computer does not start a sync.
+# This rule does not embed credentials. The hook no-ops until kobo-sync.sh is
+# on the user partition.
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan*", RUN+="/usr/local/dogear/wifi-hook.sh"
+ACTION=="change", SUBSYSTEM=="net", KERNEL=="wlan*", ENV{OPERSTATE}=="up", RUN+="/usr/local/dogear/wifi-hook.sh"
