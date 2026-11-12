@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { sbServer } from "@/lib/supabase-server";
 import HighlightCard from "@/components/HighlightCard";
+import CategoryPicker from "@/components/CategoryPicker";
+import { loadCategoryIndex } from "@/lib/library";
 import type { Highlight } from "@/lib/types";
 import BookSummary from "./BookSummary";
 
@@ -28,6 +30,11 @@ export default async function BookPage({ params }: { params: { id: string } }) {
     .order("highlighted_at", { ascending: true });
 
   const list = (highlights ?? []) as Highlight[];
+  const { categories, selected } = await loadCategoryIndex(
+    sb,
+    user.id,
+    list.map((item) => item.id),
+  );
 
   return (
     <section>
@@ -47,7 +54,18 @@ export default async function BookPage({ params }: { params: { id: string } }) {
         Highlights ({list.length})
       </h2>
       {list.map((h) => (
-        <HighlightCard key={h.id} h={h} showBook={false} />
+        <HighlightCard
+          key={h.id}
+          h={h}
+          showBook={false}
+          extra={
+            <CategoryPicker
+              highlightId={h.id}
+              categories={categories}
+              selected={selected[h.id] ?? []}
+            />
+          }
+        />
       ))}
     </section>
   );

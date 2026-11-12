@@ -506,10 +506,46 @@ col_present() {
   printf '%s\n' "$info" | awk -F'|' -v n="$name" 'BEGIN { n = tolower(n) } tolower($2) == n { f = 1 } END { exit !f }'
 }
 
+stage_sqlite() {
+  # Do not name this variable src. extract_highlights uses src for the
+  # database path, and this shell has no isolation unless the name differs.
+  local bin_src
+  bin_src=$1
+  # The user partition is often mounted noexec, so a binary next to this
+  # script cannot be executed in place. Copy it into the temp dir and run that.
+  cp "$bin_src" "$work/sqlite3.bin" || return 1
+  chmod 755 "$work/sqlite3.bin" 2>/dev/null || true
+  SQLITE_BIN="$work/sqlite3.bin"
+}
+
+resolve_sqlite() {
+  if [ -n "${DOG_SQLITE:-}" ]; then
+    if [ ! -f "$DOG_SQLITE" ]; then
+      log "sqlite3 not found"
+      return 1
+    fi
+    stage_sqlite "$DOG_SQLITE"
+    return $?
+  fi
+  for c in "$SCRIPT_DIR/sqlite3" "$ROOT/sqlite3"; do
+    if [ -f "$c" ]; then
+      log "using bundled sqlite3"
+      stage_sqlite "$c"
+      return $?
+    fi
+  done
+  if command -v sqlite3 >/dev/null 2>&1; then
+    SQLITE_BIN=$(command -v sqlite3)
+    return 0
+  fi
+  log "sqlite3 not found. Keep the bundled file .adds/dogear/sqlite3 next to kobo-sync.sh. This firmware has no sqlite3 on PATH."
+  return 1
+}
+
 build_query() {
   db=$1
   out=$2
-  bookmark_info=$(sqlite3 -batch -noheader "$db" "PRAGMA table_info(Bookmark);")
+  bookmark_info=$("$SQLITE_BIN" -batch -noheader "$db" "PRAGMA table_info(Bookmark);")
   if ! printf '%s\n' "$bookmark_info" | awk -F'|' 'tolower($2)=="bookmarkid"{f=1} END{exit !f}'; then
     return 1
   fi
@@ -557,7 +593,7 @@ build_query() {
     hidden_where="AND coalesce(b.Hidden, 0) NOT IN (1, '1', 'true')"
   fi
 
-  content_name=$(sqlite3 -batch -noheader "$db" "SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) = 'content' LIMIT 1;")
+  content_name=$("$SQLITE_BIN" -batch -noheader "$db" "SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) = 'content' LIMIT 1;")
   case "$content_name" in
     content|Content) ;;
     *) content_name= ;;
@@ -567,7 +603,7 @@ build_query() {
   joins=
   qchapter="quote('')"
   if [ -n "$content_name" ]; then
-    content_info=$(sqlite3 -batch -noheader "$db" "PRAGMA table_info(content);")
+    content_info=$("$SQLITE_BIN" -batch -noheader "$db" "PRAGMA table_info(content);")
     if col_present "$content_info" Title; then
       qtitle="quote(coalesce(book.Title, ''))"
       if [ "$has_contentid" -eq 1 ]; then
@@ -620,8 +656,11 @@ extract_highlights() {
     mkdir -m 700 "$work" || return 1
   fi
   mkdir -p "$work/out"
+  if ! resolve_sqlite; then
+    return 1
+  fi
   copy="$work/read.sqlite"
-  if ! sqlite3 "$src" ".backup $copy" >"$work/backup.err" 2>&1; then
+  if ! "$SQLITE_BIN" "$src" ".backup $copy" >"$work/backup.err" 2>&1; then
     log "could not copy the highlight database"
     log "$(redact < "$work/backup.err" | clip)"
     rm -f "$copy"
@@ -633,7 +672,7 @@ extract_highlights() {
     return 1
   fi
   sep=$(printf '\034')
-  sqlite3 -batch -noheader -separator "$sep" -cmd "PRAGMA query_only = ON;" "$copy" \
+  "$SQLITE_BIN" -batch -noheader -separator "$sep" -cmd "PRAGMA query_only = ON;" "$copy" \
     "$(cat "$work/query.sql")" >"$work/rows.txt" 2>"$work/sql.err"
   qrc=$?
   rm -f "$copy" "$copy-wal" "$copy-shm"

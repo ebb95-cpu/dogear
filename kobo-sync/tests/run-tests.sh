@@ -129,7 +129,7 @@ new_case() {
   export DOG_HTTP_TIMEOUT=2
   export DOG_BATCH=20
   export PATH="$FAKEBIN:$ORIG_PATH"
-  unset DOG_BATTERY_FILE DOG_DEBUG_DIR
+  unset DOG_BATTERY_FILE DOG_DEBUG_DIR DOG_SQLITE DOG_SQLITE_MARKER
   write_config
   make_db "$DOG_DB"
 }
@@ -543,6 +543,32 @@ EOF
   sh "$repo/kobo-sync/rootfs/usr/local/dogear/wifi-hook.sh" > "$tmp/idle.out" || exit 1
   grep -q "idle" "$tmp/idle.out" || exit 1
 ) && ok wifi-hook || bad wifi-hook
+
+(
+  new_case
+  export DOG_SQLITE_MARKER=$CASE/used-bundled
+  cat > "$DOG_ROOT/sqlite3" <<EOF
+#!/bin/sh
+echo bundled > "\$DOG_SQLITE_MARKER"
+exec /usr/bin/sqlite3 "\$@"
+EOF
+  chmod 755 "$DOG_ROOT/sqlite3"
+  run_sync manual
+  test "$(cat "$CASE/exit")" = "0" || exit 1
+  test "$(cat "$DOG_SQLITE_MARKER")" = "bundled" || exit 1
+  grep -q "using bundled sqlite3" "$DOG_ROOT/sync.log" || exit 1
+  test "$(bodies)" = "1" || exit 1
+  assert_clean
+) && ok bundled-sqlite-preferred || bad bundled-sqlite-preferred
+
+(
+  new_case
+  export DOG_SQLITE=$CASE/missing-sqlite3
+  run_sync manual
+  test "$(cat "$CASE/exit")" = "1" || exit 1
+  test "$(bodies)" = "0" || exit 1
+  grep -q "sqlite3 not found" "$DOG_ROOT/sync.log" || exit 1
+) && ok sqlite-missing || bad sqlite-missing
 
 echo
 if [ "$failures" -eq 0 ]; then

@@ -6,8 +6,9 @@ These steps were checked with simulated Wi-Fi, a fake HTTP client, and an embedd
 
 ## What was wrong with the previous install
 
-- `nm_kobosync` put a space in `:quiet :sh ...`. NickelMenu passes the rest of the line to `sh -c`. That line starts a program named `quiet` and never runs `kobo-sync.sh`. The corrected line is `quiet:sh ...` with no space before `sh`.
-- `auto-sync-on-wifi.sh` was an endless five-minute loop, and nothing in the install actually started it at boot or when Wi-Fi connected. The manual menu was the only trigger, and the menu entry did not launch the script.
+- A read-only look on 12 Nov 2026 confirmed the menu line on the device: `menu_item :main :DogEars :cmd_spawn :quiet :sh /mnt/onboard/.adds/dogear/kobo-sync.sh`. The space after `quiet` makes NickelMenu run a program named `quiet`. The corrected prefix is `quiet:sh` with no space before `sh`.
+- The same look found `sync.log` with only `sqlite3: not found` (17 Apr 2026). `state.synced` was empty, so nothing was uploaded. A `sqlite3` binary was already at `.adds/dogear/sqlite3`, and the script never called it. The repair copies that bundled file into `/tmp` and runs the copy, because the user partition is often mounted noexec. It still falls back to `sqlite3` on `PATH` when the bundle is absent.
+- `auto-sync-on-wifi.sh` was an endless five-minute loop, and nothing in the install started it when Wi-Fi connected.
 - The script required `curl`, `ping`, and SQLite `json_object()`. A SQLite error was treated as "no highlights". It also corrupted a batch that contained one highlight.
 - `config.env` asked for the Supabase **service role** key. That key bypasses every account. The old `sync_highlights` function also trusted a user id sent by the device. The replacement uses a revocable per-account token. The anon key on the device is only the public API key.
 
@@ -21,7 +22,8 @@ From `kobo-sync/dist/` after `sh kobo-sync/build-installer.sh` (the repo already
 | `user/extract.awk` | `.adds/dogear/extract.awk` |
 | `user/auto-sync-on-wifi.sh` | `.adds/dogear/auto-sync-on-wifi.sh` |
 | `user/config.env.example` | `.adds/dogear/config.env.example` |
-| your own `config.env` | `.adds/dogear/config.env` |
+| your new `config.env` | `.adds/dogear/config.env` (replace the old file) |
+| leave the existing file | `.adds/dogear/sqlite3` (do not delete or overwrite this) |
 | `user/nm_kobosync` | `.adds/nm/nm_kobosync` (overwrite the old file) |
 | `KoboRoot.tgz` | `.kobo/KoboRoot.tgz` |
 
@@ -32,7 +34,8 @@ From `kobo-sync/dist/` after `sh kobo-sync/build-installer.sh` (the repo already
 1. In the Supabase SQL editor, run `supabase/migrations/20261111_device_ingest.sql` if this project was created from an older `schema.sql`. A new project that already ran the current `schema.sql` can skip this. The migration does not delete highlights, notes, tags, or books.
 2. Deploy or refresh the web app so `/account` includes **Create Kobo token**.
 3. Create a token. Copy the three-line config. Paste the anon / public key over the placeholder. Do not add a service role key.
-4. If a service role key was previously saved on the Kobo, regenerate that key in Supabase → Settings → API after the new config is in place. The old key is no longer needed for Dogear.
+4. The config already on the Kobo includes a service-role key. Treat that key as exposed. Regenerate it in Supabase → Settings → API. Do not copy the old `config.env` onto another machine or into git. The new file has the anon public key and `DOGEAR_INGEST_TOKEN` only.
+5. Set the library address before copying the menu file. From the repo: `sh kobo-sync/stamp-library-url.sh https://your-deployed-app.vercel.app` then `sh kobo-sync/build-installer.sh`. That rewrites the Dogears browser item to `https://your-deployed-app.vercel.app/library`. The script does not read `config.env`.
 
 `config.env` looks like:
 
@@ -42,26 +45,29 @@ SUPABASE_ANON_KEY="the-anon-public-key"
 DOGEAR_INGEST_TOKEN="dogear_..."
 ```
 
-## USB install
+## USB install on the Mac
 
-1. Plug the Kobo in. The volume is named `KOBOeReader`. This is a copy you do by hand. Do not leave a helper running on the Mac.
-2. If NickelMenu is missing, put its `KoboRoot.tgz` in `KOBOeReader/.kobo/` and eject. Wait for the reboot, then plug the Kobo in again. Do this before copying Dogear's `KoboRoot.tgz`, because the Kobo consumes one `KoboRoot.tgz` per reboot.
-3. Create `KOBOeReader/.adds/dogear/` and copy the four script files plus `config.env`.
-4. Overwrite `KOBOeReader/.adds/nm/nm_kobosync` with the new file. Leaving the old file in place keeps the broken menu command.
-5. Copy Dogear's `KoboRoot.tgz` to `KOBOeReader/.kobo/KoboRoot.tgz`.
-6. Eject and wait for the reboot.
+The Kobo volume, when connected, is `/Volumes/KOBOeReader`. Copy these files by hand. Do not leave a helper running. Do not copy `KoboReader.sqlite` off the device. NickelMenu is already installed, so do not install it again. There is no real `KoboRoot.tgz` on the device right now (only an AppleDouble `._KoboRoot.tgz` leftover); copying Dogears' package into `.kobo/KoboRoot.tgz` is the right next file.
 
-Optional: `sh kobo-sync/build-installer.sh` refuses to touch a mounted Kobo unless `DOG_INSTALL_CONFIRM=yes` and `KOBO_MOUNT` points at a volume that already has a `.kobo` folder. It never reads or writes `KoboReader.sqlite`. Prefer the manual copy above unless you have looked at that script.
+1. Finish the Supabase migration, the web deploy, the token, and `stamp-library-url.sh` before this copy. The library button opens whatever URL is in the menu file.
+2. In Finder, show hidden files. Open `/Volumes/KOBOeReader/.adds/dogear/`.
+3. Confirm `sqlite3` is still there. Leave it. Do not replace it with anything from this repo.
+4. Copy `kobo-sync/dist/user/kobo-sync.sh`, `extract.awk`, and `auto-sync-on-wifi.sh` into that folder, replacing the old scripts. Copy the new `config.env` in as well, replacing the file that contains the service-role key.
+5. Copy `kobo-sync/dist/user/nm_kobosync` over `/Volumes/KOBOeReader/.adds/nm/nm_kobosync`. If another file in `.adds/nm/` also contains `menu_main_15505_label`, remove that line. NickelMenu keeps the first label it reads.
+6. Copy `kobo-sync/dist/KoboRoot.tgz` to `/Volumes/KOBOeReader/.kobo/KoboRoot.tgz`.
+7. Eject and wait for the reboot. The reboot installs the Wi-Fi hook. The `.adds` files stay.
+
+`sh kobo-sync/build-installer.sh` only writes the `dist/` folder on the Mac. It refuses to write to a mounted Kobo unless `DOG_INSTALL_CONFIRM=yes` and `KOBO_MOUNT` is set. Do not use that flag for this copy. It never reads or writes `KoboReader.sqlite`.
 
 ## On-device check
 
 Do this on the Kobo after it has rebooted. It does not require the computer to stay connected.
 
-1. Open the main menu. You should see **Dogear sync status** and **Dogear sync highlights**. The reader menu also has **Dogear sync highlights**.
-2. Tap **Dogear sync status**. It should show `version=2` and either `config=ok` or a config error. It must not show the token, the anon key, or a service role key.
-3. Turn Wi-Fi on, or tap **Dogear sync highlights** (that item asks Nickel to connect, then the script waits up to about 40 seconds for an address).
-4. Tap **Dogear sync status** again. `result=ok` means the upload was accepted or there was nothing new. `result=auth` means the token was rejected. `result=offline` means no address or the server did not answer after three tries. `result=config` means `config.env` was refused.
-5. Open the website. The book and highlight should be on the account that owns the token.
+1. The bottom-right tab should say **Dogears**, not NickelMenu. NickelMenu's own doc names this `experimental :menu_main_15505_label :Dogears`. The tab still opens a menu; that menu has one item, also **Dogears**. Tap it. With Wi-Fi up, the stock browser opens `/library` (All, Books, Today, Categories). Offline, that page cannot load. The reader does not keep a local copy of the library.
+2. Sync and status are not on that tab. While reading, the overflow menu has **Sync** and **Status**. My Books has the same two items in its filter menu.
+3. Tap **Status**. It should show `version=2` and either `config=ok` or a config error. It must not show the token, the anon key, or a service role key. The log should say `using bundled sqlite3`, not `sqlite3: not found`.
+4. Tap **Sync** once, then **Status** again. `result=ok` means the upload was accepted or there was nothing new. `result=auth` means the token was rejected. `result=offline` means no address or the server did not answer after three tries. `result=config` means `config.env` was refused.
+5. On the phone, open the same site, log in, and check Today, All, Books, and Categories. The highlight should belong to the account that owns the token.
 
 The script copies `KoboReader.sqlite` into RAM, reads highlight rows, deletes the copy, then uploads. It does not upload the database file. Do not copy `KoboReader.sqlite` off the device into chat, email, or git. It can contain the store login.
 
@@ -74,7 +80,7 @@ Highlights made while Wi-Fi is already connected wait until the next Wi-Fi conne
 Cloud highlights are not deleted by any of these steps.
 
 1. On the Kobo, delete `.adds/nm/nm_kobosync` to remove the menu items.
-2. Delete `.adds/dogear/kobo-sync.sh`. The Wi-Fi hook then exits without syncing. You can delete the whole `.adds/dogear` folder if you also want the local log and config gone. That does not remove anything in Supabase.
+2. Delete `.adds/dogear/kobo-sync.sh`. The Wi-Fi hook then exits without syncing. You can delete the whole `.adds/dogear` folder if you also want the local log and config gone. That does not remove anything in Supabase. The `sqlite3` binary in that folder is only needed for sync; keep it if you might reinstall.
 3. Revoke the token on the website account page.
 4. On the server, `supabase/migrations/20261111_device_ingest_rollback.sql` drops the token table and the ingest function. It does not delete books or highlights, and it does not turn the old service-role RPC back on.
 
@@ -86,5 +92,7 @@ The inert udev hook remains until the next firmware update or until you install 
 - `result=auth`: create a new token. The old one is revoked or the migration was not run.
 - HTTP 404 in the log: run `supabase/migrations/20261111_device_ingest.sql` and wait for the API schema to reload.
 - `result=offline` with Wi-Fi up: the address was not ready within the wait, or the server timed out. Toggle Wi-Fi or tap **Dogear sync highlights** again.
+- The tab still says NickelMenu: the `experimental :menu_main_15505_label :Dogears` line is missing, another config file set the label first, or the Kobo has not rebooted since the file was copied.
+- The log still says `sqlite3: not found`: `.adds/dogear/sqlite3` was deleted. Put that bundled binary back next to `kobo-sync.sh`.
 - Menu items missing: NickelMenu is not installed, or `nm_kobosync` was not overwritten.
 - Highlights with no book title: open the book once on the Kobo so its library row exists, then sync again. A later sync will not blank a title that is already stored.
