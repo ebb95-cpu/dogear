@@ -1,8 +1,17 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { format } from "date-fns";
 import type { Highlight } from "@/lib/types";
 
-export default function HighlightCard({ h, showBook = true }: { h: Highlight; showBook?: boolean }) {
+export default function HighlightCard({
+  h,
+  showBook = true,
+  extra,
+}: {
+  h: Highlight;
+  showBook?: boolean;
+  extra?: ReactNode;
+}) {
   return (
     <article className="border-b border-[color:var(--rule)] py-8">
       <blockquote className="text-lg leading-relaxed">
@@ -31,6 +40,7 @@ export default function HighlightCard({ h, showBook = true }: { h: Highlight; sh
           {h.highlighted_at ? format(new Date(h.highlighted_at), "MMM d, yyyy") : ""}
         </div>
       </footer>
+      {extra}
     </article>
   );
 }

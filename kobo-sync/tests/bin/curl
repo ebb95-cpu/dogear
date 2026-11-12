@@ -1,0 +1,51 @@
+#!/bin/sh
+# Test double. Records the request and returns scripted HTTP status codes.
+dir=${DOG_CURL_DIR:?}
+mkdir -p "$dir"
+n=$(find "$dir" -name 'attempt-*' 2>/dev/null | wc -l | tr -d ' ')
+n=$((n + 1))
+: > "$dir/attempt-$n"
+out=/dev/null
+data=
+url=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out=$2; shift 2 ;;
+    -H) printf '%s\n' "$2" >> "$dir/headers-$n.txt"; shift 2 ;;
+    --data-binary) data=$2; shift 2 ;;
+    -w|--max-time|-X) shift 2 ;;
+    -sS|-s|--silent) shift ;;
+    http://*|https://*) url=$1; shift ;;
+    *) shift ;;
+  esac
+done
+printf '%s\n' "$url" > "$dir/url-$n.txt"
+bodyfile=$data
+case "$bodyfile" in
+  @*) bodyfile=${bodyfile#@} ;;
+esac
+if [ -n "$bodyfile" ] && [ -f "$bodyfile" ]; then
+  cp "$bodyfile" "$dir/body-$n.json"
+fi
+if [ -n "${DOG_WORK_PARENT:-}" ]; then
+  if find "$DOG_WORK_PARENT" \( -name 'read.sqlite' -o -name '*.sqlite' \) | grep -q .; then
+    echo leak > "$dir/sqlite-leak"
+  fi
+fi
+code=200
+if [ -f "$dir/codes" ] && [ -s "$dir/codes" ]; then
+  code=$(awk 'NR==1 { print; exit }' "$dir/codes")
+  awk 'NR>1' "$dir/codes" > "$dir/codes.next"
+  mv "$dir/codes.next" "$dir/codes"
+fi
+if [ "$code" = "000" ]; then
+  echo "connection failed" >&2
+  exit 1
+fi
+if [ "$code" = "200" ] || [ "$code" = "204" ]; then
+  printf '%s' '{"ok":true,"books":1,"highlights":1}' > "$out"
+else
+  printf '%s' '{"message":"simulated"}' > "$out"
+fi
+printf '%s' "$code"
+exit 0

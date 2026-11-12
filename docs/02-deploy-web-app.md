@@ -13,7 +13,7 @@ Vercel hosts Next.js apps for free on personal accounts.
    - `ANTHROPIC_API_KEY` (optional) — enables AI book summaries
 5. Click **Deploy**. In ~90 seconds you'll get a URL like `https://dogear-xxx.vercel.app`.
 6. Open it, click **Log in**, enter your email, click the magic link in your inbox. You should see an empty "Today's review" page.
-7. Go to `/account`. Copy the **USER_ID** shown — you'll paste it into the Kobo config next.
+7. Go to `/account`. Create a **Kobo token** and copy the config block. That token is the Kobo credential. The account id is not.
 
 ## Local dev (optional)
 

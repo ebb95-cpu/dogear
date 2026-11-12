@@ -1,0 +1,33 @@
+# Dogears on the Kobo.
+#
+# Firmware 4.23.15505+ draws the old top-left menu as a bottom-right tab.
+# NickelMenu's published doc (res/doc, and https://pgaskin.net/NickelMenu/)
+# names the experimental key that renames that tab:
+#   experimental :menu_main_15505_label :Dogears
+# The key is menu_main_15505_label. The value Dogears replaces the default
+# "NickelMenu" label. Unknown keys are ignored. The first declaration wins,
+# so remove any other menu_main_15505_label line in .adds/nm/.
+# This option is marked experimental by NickelMenu and can change later.
+# 4.46.23852 is in the 4.23.15505+ range. A reboot is required after editing.
+#
+# The tab always opens this menu. It cannot be bound to a URL by itself.
+# The only home item is Dogears, which opens the library in the stock browser.
+# Sync and status stay on the reader and My Books menus.
+#
+# quiet: must be in the same field as the command, with no space before sh.
+# Replace YOUR-DOGEARS-APP.example with the deployed site before copying.
+
+experimental :menu_main_15505_label :Dogears
+
+menu_item :main :Dogears :nickel_wifi :autoconnect
+chain_always :nickel_browser :modal:https://YOUR-DOGEARS-APP.example/library
+
+menu_item :reader :Sync :nickel_wifi :autoconnect
+chain_always :cmd_spawn :quiet:sh /mnt/onboard/.adds/dogear/kobo-sync.sh manual
+menu_item :reader :Status :cmd_output :4000:sh /mnt/onboard/.adds/dogear/kobo-sync.sh status
+
+menu_item :library :Sync :nickel_wifi :autoconnect
+chain_always :cmd_spawn :quiet:sh /mnt/onboard/.adds/dogear/kobo-sync.sh manual
+menu_item :library :Status :cmd_output :4000:sh /mnt/onboard/.adds/dogear/kobo-sync.sh status
+
+menu_item :browser :Close :nickel_misc :home

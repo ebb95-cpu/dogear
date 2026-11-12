@@ -1,9 +1,11 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { sbBrowser } from "@/lib/supabase-browser";
 import type { Tag } from "@/lib/types";
 
 export default function ThemeManager({ initial }: { initial: Tag[] }) {
+  const router = useRouter();
   const [tags, setTags] = useState<Tag[]>(initial);
   const [name, setName] = useState("");
 
@@ -18,12 +20,14 @@ export default function ThemeManager({ initial }: { initial: Tag[] }) {
     }).select().single();
     if (data) setTags([...tags, data as Tag]);
     setName("");
+    router.refresh();
   }
 
   async function remove(id: string) {
     const sb = sbBrowser();
     await sb.from("tags").delete().eq("id", id);
     setTags(tags.filter((t) => t.id !== id));
+    router.refresh();
   }
 
   const themes = tags.filter((t) => t.is_theme);
@@ -34,11 +38,11 @@ export default function ThemeManager({ initial }: { initial: Tag[] }) {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. discipline"
+          placeholder="e.g. discipline or a half-formed idea"
           className="flex-1 border border-[color:var(--rule)] px-3 py-2 text-sm"
         />
         <button onClick={add} className="border border-[color:var(--ink)] px-4 py-2 text-sm">
-          Add theme
+          Add category
         </button>
       </div>
 
