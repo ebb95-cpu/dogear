@@ -10,6 +10,7 @@ Vercel hosts Next.js apps for free on personal accounts.
 4. On the env vars screen, paste:
    - `NEXT_PUBLIC_SUPABASE_URL` = your Supabase Project URL
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = your Supabase anon key
+   - `SUPABASE_SERVICE_ROLE_KEY` = the service role key. Server only. It lets a signed-in phone create a one-time code the Kobo browser can exchange for a session. Do not prefix it with `NEXT_PUBLIC_` and do not put it on the Kobo.
    - `ANTHROPIC_API_KEY` (optional) — enables AI book summaries
 5. Click **Deploy**. In ~90 seconds you'll get a URL like `https://dogear-xxx.vercel.app`.
 6. Open it, click **Log in**, enter your email, click the magic link in your inbox. You should see an empty "Today's review" page.
@@ -19,7 +20,7 @@ Vercel hosts Next.js apps for free on personal accounts.
 
 ```bash
 cd web
-cp .env.example .env.local   # fill in the two SUPABASE_* vars
+cp .env.example .env.local   # fill in the URL, the anon key, and the service role key
 npm install
 npm run dev                   # http://localhost:3000
 ```

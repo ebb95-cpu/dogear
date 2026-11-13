@@ -11,7 +11,7 @@ Supabase is the backend — Postgres database, auth, auto-generated API. Free ti
 5. Go to **Settings → API**. Copy two values:
    - **Project URL** (e.g. `https://abcxyz.supabase.co`)
    - **anon / public key** — used by the web app and, later, by the Kobo as the public API key
-   The **service role / secret key** is not used. Do not copy it onto the Kobo. If an older install already put that key on the device, regenerate it in this screen after you switch the Kobo to a device token.
+   The **service role / secret key** is used only by the web app, to sign the Kobo browser in with a one-time code. Put it in the Vercel env var `SUPABASE_SERVICE_ROLE_KEY`. Do not copy it onto the Kobo. If an older install already put that key on the device, regenerate it in this screen after you switch the Kobo to a device token, and update the Vercel env var.
 6. Go to **Authentication → Providers**. Make sure **Email** is enabled. Disable "Confirm email" if you want the magic link flow to skip email confirmation (optional).
-7. If this project already ran an older `schema.sql`, also run `supabase/migrations/20261111_device_ingest.sql`. It adds device tokens and does not delete books or highlights. A brand-new paste of the current `schema.sql` already includes those statements.
+7. If this project already ran an older `schema.sql`, also run `supabase/migrations/20261111_device_ingest.sql` and `supabase/migrations/20261113_login_codes.sql`. They add device tokens, the last-sync stamp, and Kobo sign-in codes. They do not delete books or highlights. A brand-new paste of the current `schema.sql` already includes those statements.
 8. Done. Next: deploy the web app.

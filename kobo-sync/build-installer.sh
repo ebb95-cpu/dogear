@@ -12,9 +12,37 @@ here=$(CDPATH= cd "$(dirname "$0")" && pwd)
 dist="$here/dist"
 rm -rf "$dist"
 mkdir -p "$dist/user"
-chmod 755 "$here/rootfs/usr/local/dogear/wifi-hook.sh"
+chmod 755 "$here/rootfs/usr/local/dogear" "$here/rootfs/usr/local/dogear/wifi-hook.sh"
 chmod 644 "$here/rootfs/etc/udev/rules.d/99-dogear-wifi.rules"
-tar --format=ustar -czf "$dist/KoboRoot.tgz" -C "$here/rootfs" etc usr
+# File entries plus usr/local/dogear/ only. Parent directories (etc, usr,
+# usr/local) are omitted so unpacking as root cannot chown system dirs.
+# --no-recursion keeps the directory listing from also storing the hook as
+# a hard link. GNU tar takes --owner/--group. bsdtar takes --uid/--gid.
+members="etc/udev/rules.d/99-dogear-wifi.rules usr/local/dogear usr/local/dogear/wifi-hook.sh"
+if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+  # shellcheck disable=SC2086
+  tar --format=ustar --owner=0 --group=0 --numeric-owner --no-recursion \
+    -czf "$dist/KoboRoot.tgz" -C "$here/rootfs" $members
+else
+  # shellcheck disable=SC2086
+  tar --format ustar --uid 0 --gid 0 --numeric-owner --no-recursion \
+    -czf "$dist/KoboRoot.tgz" -C "$here/rootfs" $members
+fi
+tar_list=$(tar -tzf "$dist/KoboRoot.tgz")
+for bad in "etc/" "etc/udev/" "etc/udev/rules.d/" "usr/" "usr/local/"; do
+  if printf '%s\n' "$tar_list" | grep -Fxq "$bad"; then
+    echo "KoboRoot.tgz contains $bad and would chown a system directory" >&2
+    exit 1
+  fi
+done
+if tar -tvzf "$dist/KoboRoot.tgz" | grep -q 'link to'; then
+  echo "KoboRoot.tgz contains a hard link entry" >&2
+  exit 1
+fi
+if ! tar --numeric-owner -tvzf "$dist/KoboRoot.tgz" | awk '{ if ($2 != "0/0") bad = 1 } END { exit bad }'; then
+  echo "KoboRoot.tgz entries must be owned by 0/0" >&2
+  exit 1
+fi
 if command -v sha256sum >/dev/null 2>&1; then
   sha256sum "$dist/KoboRoot.tgz" > "$dist/KoboRoot.tgz.sha256"
 fi
@@ -24,8 +52,12 @@ cp "$here/nm_kobosync" "$dist/user/nm_kobosync"
 cat > "$dist/INSTALL.txt" <<'EOF'
 Dogear Kobo installer
 
-KoboRoot.tgz only adds a Wi-Fi trigger under /usr/local/dogear and
-/etc/udev/rules.d. It contains no config, no database, and no API key.
+KoboRoot.tgz only adds a Wi-Fi trigger: the file
+etc/udev/rules.d/99-dogear-wifi.rules, the directory usr/local/dogear/,
+and usr/local/dogear/wifi-hook.sh. Entries are numeric owner 0 and group 0.
+It does not contain etc/, usr/, or usr/local/, so unpacking as root does not
+change the owner of those system directories. It contains no config, no
+database, and no API key.
 The user/ folder is what goes on the visible Kobo volume.
 
 Follow docs/03-install-on-kobo.md for the full install, the on-device

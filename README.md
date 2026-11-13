@@ -29,7 +29,7 @@ Every passage you dogear on your Kobo comes back to you a few at a time.
 ```
 
 1. A shell script on the Kobo reads highlight rows from `KoboReader.sqlite` and, when Wi-Fi connects, POSTs them to your Supabase project with a revocable per-account token.
-2. Supabase stores them (Postgres) and handles your login (magic link email).
+2. Supabase stores them (Postgres) and handles your login (magic link email, or a one-time code from a phone for the Kobo browser).
 3. The web app on Vercel reads from Supabase and renders the UI.
 
 Everything in this repo runs on free tiers.
@@ -68,7 +68,7 @@ dogear/
 1. **Create a free Supabase project** → paste `supabase/schema.sql` → copy your project URL + anon key.
    See `docs/01-setup-supabase.md`.
 
-2. **Deploy the web app to Vercel** (free) → plug in the two env vars from step 1.
+2. **Deploy the web app to Vercel** (free) → plug in the URL, the anon key, and the service role key from step 1.
    See `docs/02-deploy-web-app.md`.
 
 3. **Install the sync script on your Kobo** (via NickelMenu, ~5 min).

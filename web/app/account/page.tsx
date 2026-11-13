@@ -21,6 +21,22 @@ export default async function AccountPage() {
       <p className="text-sm text-[color:var(--muted)]">Signed in as {user.email}</p>
       <p className="mt-4 text-sm">{bc ?? 0} books · {hc ?? 0} highlights</p>
 
+      <form method="post" action="/auth/device-code" className="mt-10 max-w-prose">
+        <h2 className="text-sm uppercase tracking-widest text-[color:var(--muted)] mb-3">
+          Sign in another device
+        </h2>
+        <p className="text-sm mb-3">
+          The Kobo browser cannot open an email magic link. Create a code here, then on the
+          Kobo open Log in and tap Have a code? The code works once and expires in 10 minutes.
+        </p>
+        <button
+          type="submit"
+          className="border-2 border-[color:var(--ink)] bg-[color:var(--ink)] text-white px-4 py-4 text-lg"
+        >
+          Sign in another device
+        </button>
+      </form>
+
       <DeviceTokenManager supabaseUrl={process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""} />
 
       <div className="mt-10"><LogoutButton /></div>

@@ -5,11 +5,18 @@
 # content id is accepted so the field count stays stable; chapter title
 # is what we store.
 # stdout: one line, "pending N skipped N batches N errors N"
+# backupfile, when set, receives one JSON object per highlight, including
+# rows that are already synced. Fields are title, author, text, note,
+# created, and kobo_bookmark_id. No token and no volume path.
 
 BEGIN {
   for (i = 1; i <= 255; i++) ORD[sprintf("%c", i)] = i
   SEP = sprintf("%c", 28)
   if (batchsize + 0 < 1) batchsize = 20
+  if (backupfile != "") {
+    printf "" > backupfile
+    close(backupfile)
+  }
   if (statefile != "") {
     while ((getline line < statefile) > 0) {
       tab = index(line, "\t")
@@ -58,6 +65,10 @@ function jesc(s,    i, c, o, b) {
 
 function jstr(s) {
   if (s == "") return "null"
+  return "\"" jesc(s) "\""
+}
+
+function jq(s) {
   return "\"" jesc(s) "\""
 }
 
@@ -125,6 +136,9 @@ function handle(    id, vol, raw_text, raw_ann, date, chapter, progress, title, 
   type = tolower(trim(f[10]))
   if (id == "" || vol == "") { errors++; return }
   if (raw_text == "" && raw_ann == "") return
+  if (backupfile != "") {
+    printf "{\"title\":%s,\"author\":%s,\"text\":%s,\"note\":%s,\"created\":%s,\"kobo_bookmark_id\":%s}\n", jq(title), jq(author), jq(raw_text), jq(raw_ann), jq(date), jq(id) >> backupfile
+  }
   kind = "highlight"
   text_out = raw_text
   ann_out = raw_ann
@@ -190,6 +204,7 @@ END {
       continue
     }
   }
+  if (backupfile != "") close(backupfile)
   flush()
   printf "pending %d skipped %d batches %d errors %d\n", pending + 0, skipped + 0, bn + 0, errors + 0
 }
