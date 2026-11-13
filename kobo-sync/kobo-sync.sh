@@ -7,15 +7,19 @@
 #   sh kobo-sync.sh manual   force one sync (NickelMenu)
 #   sh kobo-sync.sh wifi     one sync after Wi-Fi comes up (udev)
 #   sh kobo-sync.sh status   redacted status for the on-device menu
+#   sh kobo-sync.sh last     one short line for the Dogears menu
 #   sh kobo-sync.sh self-test
 #
 # State, logs, and config live under /mnt/onboard/.adds/dogear.
 # A short-lived database copy is made in /tmp and removed before any HTTP
 # request. The full database is never uploaded.
+# Before the upload, highlights are written to .adds/dogear/backup/ as JSON
+# lines (title, author, text, note, created, bookmark id). That file has no
+# token and no key. It is written even when the network is down.
 
 umask 077
 
-VERSION=2
+VERSION=3
 
 redact() {
   awk '
@@ -316,6 +320,10 @@ write_status() {
   http=$2
   uploaded=$3
   message=$4
+  total=${5:-0}
+  case "$total" in
+    ''|*[!0-9]*) total=0 ;;
+  esac
   message=$(printf '%s' "$message" | redact | tr '\n' ' ' | clip)
   {
     printf 'version=%s\n' "$VERSION"
@@ -324,6 +332,7 @@ write_status() {
     printf 'result=%s\n' "$result"
     printf 'http=%s\n' "$http"
     printf 'uploaded=%s\n' "$uploaded"
+    printf 'total=%s\n' "$total"
     printf 'message=%s\n' "$message"
   } > "$ROOT/last-status"
 }
@@ -359,12 +368,109 @@ acquire_lock() {
 }
 
 cleanup() {
+  if [ -n "${BACKUP_TMP:-}" ] && [ -f "$BACKUP_TMP" ]; then
+    rm -f "$BACKUP_TMP"
+  fi
   if [ -n "${work:-}" ] && [ -d "$work" ]; then
     rm -rf "$work"
   fi
   if [ -n "${LOCKDIR:-}" ] && [ -d "$LOCKDIR" ]; then
     rm -rf "$LOCKDIR"
   fi
+}
+
+file_bytes() {
+  wc -c < "$1" | tr -d ' \n'
+}
+
+free_kb_of() {
+  # DOG_TMP_FREE_KB overrides df. The device does not set it.
+  dir=$1
+  kb=
+  if [ -n "${DOG_TMP_FREE_KB:-}" ]; then
+    case "$DOG_TMP_FREE_KB" in
+      *[!0-9]*) printf '\n'; return 1 ;;
+    esac
+    printf '%s\n' "$DOG_TMP_FREE_KB"
+    return 0
+  fi
+  kb=$(df -kP "$dir" 2>/dev/null | awk 'NR > 1 && $4 ~ /^[0-9]+$/ { print $4; exit }')
+  if [ -n "$kb" ]; then
+    printf '%s\n' "$kb"
+    return 0
+  fi
+  df -k "$dir" 2>/dev/null | awk 'NR > 1 && $4 ~ /^[0-9]+$/ { print $4; exit }'
+}
+
+prune_backups() {
+  dir=$1
+  keep=${DOG_BACKUP_KEEP:-5}
+  case "$keep" in
+    ''|*[!0-9]*) keep=5 ;;
+  esac
+  if [ "$keep" -lt 1 ]; then
+    keep=1
+  fi
+  dated_keep=$((keep - 1))
+  list="$dir/.prune.$$"
+  find "$dir" -maxdepth 1 -name 'highlights-*.jsonl' 2>/dev/null | sort > "$list" || {
+    rm -f "$list"
+    return 1
+  }
+  n=$(wc -l < "$list" | tr -d ' ')
+  if [ "$n" -gt "$dated_keep" ]; then
+    drop=$((n - dated_keep))
+    awk -v n="$drop" 'NR <= n { print }' "$list" | while IFS= read -r old; do
+      rm -f "$old"
+    done
+  fi
+  rm -f "$list"
+  return 0
+}
+
+install_backup() {
+  srcfile=$1
+  if [ ! -f "$srcfile" ]; then
+    return 1
+  fi
+  dir="$ROOT/backup"
+  mkdir -p "$dir" || return 1
+  tmp="$dir/.highlights.jsonl.$$"
+  BACKUP_TMP=$tmp
+  if ! cp "$srcfile" "$tmp"; then
+    rm -f "$tmp"
+    BACKUP_TMP=
+    return 1
+  fi
+  latest="$dir/highlights.jsonl"
+  if [ -f "$latest" ] && ! cmp -s "$tmp" "$latest"; then
+    stamp=$(date -u +%Y%m%dT%H%M%SZ)
+    rot="$dir/highlights-$stamp.jsonl"
+    if [ -e "$rot" ]; then
+      rot="$dir/highlights-$stamp-$$.jsonl"
+    fi
+    rottmp="$dir/.rotate.$$"
+    if ! cp "$latest" "$rottmp"; then
+      rm -f "$tmp" "$rottmp"
+      BACKUP_TMP=
+      return 1
+    fi
+    if ! mv "$rottmp" "$rot"; then
+      rm -f "$tmp" "$rottmp"
+      BACKUP_TMP=
+      return 1
+    fi
+  fi
+  if ! mv "$tmp" "$latest"; then
+    rm -f "$tmp"
+    BACKUP_TMP=
+    return 1
+  fi
+  BACKUP_TMP=
+  if ! prune_backups "$dir"; then
+    log "could not trim old highlight backups"
+  fi
+  return 0
 }
 
 nth_backoff() {
@@ -656,6 +762,43 @@ extract_highlights() {
     mkdir -m 700 "$work" || return 1
   fi
   mkdir -p "$work/out"
+  db_bytes=$(file_bytes "$src")
+  case "$db_bytes" in
+    ''|*[!0-9]*)
+      extract_error="could not measure the highlight database"
+      log "$extract_error"
+      return 1
+      ;;
+  esac
+  bin_bytes=0
+  if [ -n "${DOG_SQLITE:-}" ]; then
+    if [ -f "$DOG_SQLITE" ]; then
+      bin_bytes=$(file_bytes "$DOG_SQLITE")
+    fi
+  else
+    for c in "$SCRIPT_DIR/sqlite3" "$ROOT/sqlite3"; do
+      if [ -f "$c" ]; then
+        bin_bytes=$(file_bytes "$c")
+        break
+      fi
+    done
+  fi
+  case "$bin_bytes" in
+    ''|*[!0-9]*) bin_bytes=0 ;;
+  esac
+  # One database copy, the bundled sqlite3, and room for the text export.
+  need_bytes=$((db_bytes + bin_bytes + 4194304))
+  avail_kb=$(free_kb_of "$parent")
+  need_kb=$(((need_bytes + 1023) / 1024))
+  if [ -z "$avail_kb" ] || [ "$avail_kb" -lt "$need_kb" ]; then
+    if [ -z "$avail_kb" ]; then
+      extract_error="could not check free space before copying the highlight database"
+    else
+      extract_error="not enough free space in $parent to copy the highlight database"
+    fi
+    log "$extract_error"
+    return 1
+  fi
   if ! resolve_sqlite; then
     return 1
   fi
@@ -685,11 +828,16 @@ extract_highlights() {
     mkdir -p "$DOG_DEBUG_DIR"
     cp "$work/rows.txt" "$DOG_DEBUG_DIR/rows.txt" 2>/dev/null || true
   fi
-  stats=$(awk -f "$AWK" -v statefile="$STATE" -v outdir="$work/out" -v batchsize="${DOG_BATCH:-20}" "$work/rows.txt" 2>"$work/awk.err")
+  stats=$(awk -f "$AWK" -v statefile="$STATE" -v outdir="$work/out" -v batchsize="${DOG_BATCH:-20}" -v backupfile="$work/backup.jsonl" "$work/rows.txt" 2>"$work/awk.err")
   arc=$?
   if [ "$arc" -ne 0 ]; then
     log "extract formatter failed"
     log "$(redact < "$work/awk.err" | clip)"
+    return 1
+  fi
+  if ! install_backup "$work/backup.jsonl"; then
+    extract_error="could not write the highlight backup"
+    log "$extract_error"
     return 1
   fi
   case "$stats" in
@@ -750,6 +898,38 @@ upload_batches() {
   UPLOADED=$uploaded
   LAST_HTTP=$last_http
   return 0
+}
+
+print_last() {
+  if [ ! -f "$ROOT/last-status" ]; then
+    echo "Last sync: none"
+    return 0
+  fi
+  result=
+  time=
+  uploaded=
+  total=
+  message=
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=$(printf '%s' "$line" | redact)
+    key=${line%%=*}
+    val=${line#*=}
+    case "$key" in
+      result) result=$val ;;
+      time) time=$val ;;
+      uploaded) uploaded=$val ;;
+      total) total=$val ;;
+      message) message=$val ;;
+    esac
+  done < "$ROOT/last-status"
+  echo "Last sync: ${result:-unknown}"
+  if [ -n "$time" ]; then
+    printf '%s\n' "$time"
+  fi
+  printf '%s uploaded, %s total\n' "${uploaded:-0}" "${total:-0}"
+  if [ -n "$message" ]; then
+    printf '%s\n' "$message" | awk '{ if (length($0) > 80) print substr($0, 1, 80); else print }'
+  fi
 }
 
 print_status() {
@@ -815,9 +995,9 @@ run_self_test() {
 
 mode=${1:-manual}
 case "$mode" in
-  manual|wifi|status|self-test) ;;
+  manual|wifi|status|last|self-test) ;;
   *)
-    echo "usage: kobo-sync.sh [manual|wifi|status]" >&2
+    echo "usage: kobo-sync.sh [manual|wifi|status|last]" >&2
     exit 1
     ;;
 esac
@@ -839,6 +1019,11 @@ work=
 
 if [ "$mode" = "status" ]; then
   print_status
+  exit 0
+fi
+
+if [ "$mode" = "last" ]; then
+  print_last
   exit 0
 fi
 
@@ -874,19 +1059,13 @@ fi
 
 if ! acquire_lock; then
   log "sync already running"
-  write_status skipped "" 0 "already running"
+  write_status skipped "" 0 "already running" 0
   exit 0
-fi
-
-if ! wait_for_wifi; then
-  log "no network address"
-  write_status offline "" 0 "no network address"
-  exit 75
 fi
 
 if [ ! -f "$DB" ]; then
   log "highlight database not found"
-  write_status error "" 0 "highlight database not found"
+  write_status error "" 0 "highlight database not found" 0
   exit 1
 fi
 
@@ -894,22 +1073,31 @@ if [ -f "$ROOT/state.synced" ] && [ ! -s "$STATE" ]; then
   log "ignoring old state.synced so metadata can be sent again; the server keeps one row per highlight"
 fi
 
+extract_error=
 if ! extract_highlights "$DB"; then
-  write_status error "" 0 "could not read highlights"
+  write_status error "" 0 "${extract_error:-could not read highlights}" 0
   exit 1
+fi
+
+TOTAL=$(( ${pending:-0} + ${skipped:-0} ))
+
+if ! wait_for_wifi; then
+  log "no network address"
+  write_status offline "" 0 "no network address" "$TOTAL"
+  exit 75
 fi
 
 if [ "${pending:-0}" -eq 0 ]; then
   log "nothing new"
   arm_cooldown "${DOG_SUCCESS_COOLDOWN:-180}"
-  write_status ok "" 0 "nothing new"
+  write_status ok "" 0 "nothing new" "$TOTAL"
   exit 0
 fi
 
 client=$(pick_client)
 if [ "$client" = "none" ]; then
   log "neither curl nor wget is available"
-  write_status error "" 0 "neither curl nor wget is available"
+  write_status error "" 0 "neither curl nor wget is available" "$TOTAL"
   exit 1
 fi
 
@@ -917,14 +1105,14 @@ upload_batches
 urc=$?
 if [ "$urc" -eq 0 ]; then
   arm_cooldown "${DOG_SUCCESS_COOLDOWN:-180}"
-  write_status ok "${LAST_HTTP:-200}" "${UPLOADED:-0}" "synced"
+  write_status ok "${LAST_HTTP:-200}" "${UPLOADED:-0}" "synced" "$TOTAL"
   exit 0
 fi
 if [ "$urc" -eq 2 ]; then
   arm_cooldown "${DOG_FAILURE_COOLDOWN:-45}"
-  write_status auth "${LAST_HTTP:-}" "${UPLOADED:-0}" "upload rejected"
+  write_status auth "${LAST_HTTP:-}" "${UPLOADED:-0}" "upload rejected" "$TOTAL"
   exit 1
 fi
 arm_cooldown "${DOG_FAILURE_COOLDOWN:-45}"
-write_status offline "${LAST_HTTP:-}" "${UPLOADED:-0}" "upload failed"
+write_status offline "${LAST_HTTP:-}" "${UPLOADED:-0}" "upload failed" "$TOTAL"
 exit 75

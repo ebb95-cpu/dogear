@@ -1,7 +1,11 @@
 Dogear Kobo installer
 
-KoboRoot.tgz only adds a Wi-Fi trigger under /usr/local/dogear and
-/etc/udev/rules.d. It contains no config, no database, and no API key.
+KoboRoot.tgz only adds a Wi-Fi trigger: the file
+etc/udev/rules.d/99-dogear-wifi.rules, the directory usr/local/dogear/,
+and usr/local/dogear/wifi-hook.sh. Entries are numeric owner 0 and group 0.
+It does not contain etc/, usr/, or usr/local/, so unpacking as root does not
+change the owner of those system directories. It contains no config, no
+database, and no API key.
 The user/ folder is what goes on the visible Kobo volume.
 
 Follow docs/03-install-on-kobo.md for the full install, the on-device

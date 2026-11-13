@@ -27,15 +27,18 @@ From `kobo-sync/dist/` after `sh kobo-sync/build-installer.sh` (the repo already
 | `user/nm_kobosync` | `.adds/nm/nm_kobosync` (overwrite the old file) |
 | `KoboRoot.tgz` | `.kobo/KoboRoot.tgz` |
 
-`KoboRoot.tgz` contains only `/usr/local/dogear/wifi-hook.sh` and `/etc/udev/rules.d/99-dogear-wifi.rules`. It has no token, no service key, and no database. NickelMenu is not inside it. Install NickelMenu separately from <https://pgaskin.net/NickelMenu/> if the Kobo does not already have it (firmware 4.6+; 4.46 is in that range). NickelMenu's own page says it persists across firmware updates. This Wi-Fi package does not. After a firmware update, copy `KoboRoot.tgz` into `.kobo` again. The `.adds` files remain, and the menu still works without the package.
+Do not copy a backup onto the Kobo. The reader writes `.adds/dogear/backup/` itself on the next sync. Leave `.adds/dogear/sqlite3` where it is.
+
+`KoboRoot.tgz` contains three members, all owned by numeric user 0 and group 0: the file `etc/udev/rules.d/99-dogear-wifi.rules`, the directory `usr/local/dogear/`, and the file `usr/local/dogear/wifi-hook.sh`. It does not contain entries for `etc`, `etc/udev`, `etc/udev/rules.d`, `usr`, or `usr/local`, so unpacking it as root does not change the owner of those system directories. It has no token, no service key, and no database. NickelMenu is not inside it. Install NickelMenu separately from <https://pgaskin.net/NickelMenu/> if the Kobo does not already have it (firmware 4.6+; 4.46 is in that range). NickelMenu's own page says it persists across firmware updates. This Wi-Fi package does not. After a firmware update, copy `KoboRoot.tgz` into `.kobo` again. The `.adds` files remain, and the menu still works without the package.
 
 ## Before the USB copy
 
 1. In the Supabase SQL editor, run `supabase/migrations/20261111_device_ingest.sql` if this project was created from an older `schema.sql`. A new project that already ran the current `schema.sql` can skip this. The migration does not delete highlights, notes, tags, or books.
-2. Deploy or refresh the web app so `/account` includes **Create Kobo token**.
-3. Create a token. Copy the three-line config. Paste the anon / public key over the placeholder. Do not add a service role key.
-4. The config already on the Kobo includes a service-role key. Treat that key as exposed. Regenerate it in Supabase → Settings → API. Do not copy the old `config.env` onto another machine or into git. The new file has the anon public key and `DOGEAR_INGEST_TOKEN` only.
-5. Set the library address before copying the menu file. From the repo: `sh kobo-sync/stamp-library-url.sh https://your-deployed-app.vercel.app` then `sh kobo-sync/build-installer.sh`. That rewrites the Dogears browser item to `https://your-deployed-app.vercel.app/library`. The script does not read `config.env`.
+2. Run `supabase/migrations/20261113_login_codes.sql` as well. It adds the Kobo sign-in codes and the last-sync stamp. It does not delete highlights or tokens. A new project that already ran the current `schema.sql` can skip both migrations.
+3. Deploy or refresh the web app so `/account` includes **Create Kobo token** and **Sign in another device**. On Vercel, set `SUPABASE_SERVICE_ROLE_KEY` to the service role key. That key stays on the server. Do not put it in `config.env`.
+4. Create a token. Copy the three-line config. Paste the anon / public key over the placeholder. Do not add a service role key.
+5. The config already on the Kobo includes a service-role key. Treat that key as exposed. Regenerate it in Supabase → Settings → API, and put the new value only in the Vercel env var from step 3. Do not copy the old `config.env` onto another machine or into git. The new file has the anon public key and `DOGEAR_INGEST_TOKEN` only.
+6. Set the library address before copying the menu file. From the repo: `sh kobo-sync/stamp-library-url.sh https://your-deployed-app.vercel.app` then `sh kobo-sync/build-installer.sh`. That rewrites the Dogears browser item to `https://your-deployed-app.vercel.app/library`. The script does not read `config.env`.
 
 `config.env` looks like:
 
@@ -49,7 +52,7 @@ DOGEAR_INGEST_TOKEN="dogear_..."
 
 The Kobo volume, when connected, is `/Volumes/KOBOeReader`. Copy these files by hand. Do not leave a helper running. Do not copy `KoboReader.sqlite` off the device. NickelMenu is already installed, so do not install it again. There is no real `KoboRoot.tgz` on the device right now (only an AppleDouble `._KoboRoot.tgz` leftover); copying Dogears' package into `.kobo/KoboRoot.tgz` is the right next file.
 
-1. Finish the Supabase migration, the web deploy, the token, and `stamp-library-url.sh` before this copy. The library button opens whatever URL is in the menu file.
+1. Finish the Supabase migrations, the web deploy (including `SUPABASE_SERVICE_ROLE_KEY`), the token, and `stamp-library-url.sh` before this copy. The library button opens whatever URL is in the menu file.
 2. In Finder, show hidden files. Open `/Volumes/KOBOeReader/.adds/dogear/`.
 3. Confirm `sqlite3` is still there. Leave it. Do not replace it with anything from this repo.
 4. Copy `kobo-sync/dist/user/kobo-sync.sh`, `extract.awk`, and `auto-sync-on-wifi.sh` into that folder, replacing the old scripts. Copy the new `config.env` in as well, replacing the file that contains the service-role key.
@@ -63,13 +66,19 @@ The Kobo volume, when connected, is `/Volumes/KOBOeReader`. Copy these files by 
 
 Do this on the Kobo after it has rebooted. It does not require the computer to stay connected.
 
-1. The bottom-right tab should say **Dogears**, not NickelMenu. NickelMenu's own doc names this `experimental :menu_main_15505_label :Dogears`. The tab still opens a menu; that menu has one item, also **Dogears**. Tap it. With Wi-Fi up, the stock browser opens `/library` (All, Books, Today, Categories). Offline, that page cannot load. The reader does not keep a local copy of the library.
-2. Sync and status are not on that tab. While reading, the overflow menu has **Sync** and **Status**. My Books has the same two items in its filter menu.
-3. Tap **Status**. It should show `version=2` and either `config=ok` or a config error. It must not show the token, the anon key, or a service role key. The log should say `using bundled sqlite3`, not `sqlite3: not found`.
-4. Tap **Sync** once, then **Status** again. `result=ok` means the upload was accepted or there was nothing new. `result=auth` means the token was rejected. `result=offline` means no address or the server did not answer after three tries. `result=config` means `config.env` was refused.
+1. The bottom-right tab should say **Dogears**, not NickelMenu. NickelMenu's own doc names this `experimental :menu_main_15505_label :Dogears`. The tab still opens a menu. The top item is **Last sync**. The next item is **Dogears**. Tap **Last sync** for one short status (time, how many highlights were uploaded, how many are on the device, and ok / offline / auth / error). Tap **Dogears**. With Wi-Fi up, the stock browser opens `/library` (All, Books, Today, Categories). The top of that page says when this account last synced. Offline, that page cannot load. The reader does not keep a local copy of the library.
+2. Sync and the long status are not on that tab. While reading, the overflow menu has **Sync** and **Status**. My Books has the same two items in its filter menu.
+3. Tap **Status**. It should show `version=3` and either `config=ok` or a config error. It must not show the token, the anon key, or a service role key. The log should say `using bundled sqlite3`, not `sqlite3: not found`.
+4. Tap **Sync** once, then **Last sync** or **Status** again. `result=ok` means the upload was accepted or there was nothing new. `result=auth` means the token was rejected. `result=offline` means no address or the server did not answer after three tries. `result=config` means `config.env` was refused. `total` is how many highlights were read. `uploaded` is how many were sent this time.
 5. On the phone, open the same site, log in, and check Today, All, Books, and Categories. The highlight should belong to the account that owns the token.
 
-The script copies `KoboReader.sqlite` into RAM, reads highlight rows, deletes the copy, then uploads. It does not upload the database file. Do not copy `KoboReader.sqlite` off the device into chat, email, or git. It can contain the store login.
+The script checks free space in `/tmp` before it copies `KoboReader.sqlite`. If there is not enough room, it stops and writes `not enough free space` to the log. It does not leave a database copy behind. When there is room, it copies the database into RAM, reads highlight rows, deletes the copy, writes a backup, then uploads. It does not upload the database file. Do not copy `KoboReader.sqlite` off the device into chat, email, or git. It can contain the store login.
+
+Every sync, including a manual sync and a Wi-Fi sync, writes the highlights to `.adds/dogear/backup/highlights.jsonl` before the upload. Each line is one highlight: book title, author, text, note, created date, and Kobo bookmark id. The write is a temporary file in that folder, then a rename. The folder keeps that latest snapshot and a few older dated copies, five files at most. The backup is written even when Wi-Fi is down or the upload fails. It does not contain the ingest token, the anon key, or a service role key, and it is not a copy of `KoboReader.sqlite`.
+
+## Sign in on the Kobo browser
+
+The Kobo browser cannot open the email magic link. On a phone that is already signed in, open Account and tap **Sign in another device**. Type that code on the Kobo at Log in, under **Have a code?** The code is eight letters, works once, and expires in ten minutes. The page is a plain form with large type. The session cookie is kept for as long as the browser allows (400 days) and is refreshed when the library is opened.
 
 Over USB, `KOBOeReader/.adds/dogear/sync.log` and `last-status` are safe to read. They should not contain `eyJ` or `dogear_` followed by the secret. A redacted log is the useful diagnostic. A full database is not.
 
@@ -91,7 +100,8 @@ The inert udev hook remains until the next firmware update or until you install 
 - `config=invalid` and the message mentions `SUPABASE_SERVICE_ROLE_KEY`: delete that line, regenerate the service role key, create a device token.
 - `result=auth`: create a new token. The old one is revoked or the migration was not run.
 - HTTP 404 in the log: run `supabase/migrations/20261111_device_ingest.sql` and wait for the API schema to reload.
-- `result=offline` with Wi-Fi up: the address was not ready within the wait, or the server timed out. Toggle Wi-Fi or tap **Dogear sync highlights** again.
+- `result=offline` with Wi-Fi up: the address was not ready within the wait, or the server timed out. Toggle Wi-Fi or tap **Sync** again. The backup in `.adds/dogear/backup/` is still written.
+- `not enough free space` in the log: `/tmp` could not hold a copy of the highlight database. Nothing was uploaded and no database copy was kept. Reboot the Kobo to clear `/tmp`, then tap **Sync** again.
 - The tab still says NickelMenu: the `experimental :menu_main_15505_label :Dogears` line is missing, another config file set the label first, or the Kobo has not rebooted since the file was copied.
 - The log still says `sqlite3: not found`: `.adds/dogear/sqlite3` was deleted. Put that bundled binary back next to `kobo-sync.sh`.
 - Menu items missing: NickelMenu is not installed, or `nm_kobosync` was not overwritten.

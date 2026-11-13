@@ -163,6 +163,23 @@ assert_clean() {
     echo "database copy left behind"
     return 1
   fi
+  if [ -d "$DOG_ROOT/backup" ]; then
+    if find "$DOG_ROOT/backup" \( -name '*.sqlite' -o -name '*.sqlite-*' \) | grep -q .; then
+      echo "database copy kept in backup"
+      return 1
+    fi
+    for f in "$DOG_ROOT"/backup/* "$DOG_ROOT"/backup/.*; do
+      [ -f "$f" ] || continue
+      if grep -q "$TOKEN" "$f" || grep -q "$ANON" "$f"; then
+        echo "credential leaked into $f"
+        return 1
+      fi
+      if grep -q "file://" "$f"; then
+        echo "volume path stored in backup $f"
+        return 1
+      fi
+    done
+  fi
   return 0
 }
 
@@ -480,12 +497,27 @@ EOF
   tmp=$(mktemp -d)
   sh "$repo/kobo-sync/build-installer.sh" > "$tmp/build.out" || exit 1
   tar -tzf "$repo/kobo-sync/dist/KoboRoot.tgz" | sort > "$tmp/list"
-  printf '%s\n' "etc/" "etc/udev/" "etc/udev/rules.d/" "etc/udev/rules.d/99-dogear-wifi.rules" \
-    "usr/" "usr/local/" "usr/local/dogear/" "usr/local/dogear/wifi-hook.sh" | sort > "$tmp/expect"
-  # GNU tar may omit directory entries. Compare file members only.
-  tar -tzf "$repo/kobo-sync/dist/KoboRoot.tgz" | grep -v '/$' | sort > "$tmp/files"
-  printf '%s\n' "etc/udev/rules.d/99-dogear-wifi.rules" "usr/local/dogear/wifi-hook.sh" | sort > "$tmp/files-expect"
-  diff -u "$tmp/files-expect" "$tmp/files" || exit 1
+  printf '%s\n' "etc/udev/rules.d/99-dogear-wifi.rules" "usr/local/dogear/" "usr/local/dogear/wifi-hook.sh" | sort > "$tmp/expect"
+  diff -u "$tmp/expect" "$tmp/list" || exit 1
+  for bad in "etc/" "etc/udev/" "etc/udev/rules.d/" "usr/" "usr/local/"; do
+    if grep -Fxq "$bad" "$tmp/list"; then
+      echo "system directory entry $bad" >&2
+      exit 1
+    fi
+  done
+  if tar -tvzf "$repo/kobo-sync/dist/KoboRoot.tgz" | grep -q 'link to'; then
+    echo "hard link entry" >&2
+    exit 1
+  fi
+  if ! tar --numeric-owner -tvzf "$repo/kobo-sync/dist/KoboRoot.tgz" | awk '{ if ($2 != "0/0") bad = 1 } END { exit bad }'; then
+    echo "archive owner is not 0/0" >&2
+    exit 1
+  fi
+  hook_mode=$(tar --numeric-owner -tvzf "$repo/kobo-sync/dist/KoboRoot.tgz" | awk '/wifi-hook.sh$/ { print $1 }')
+  case "$hook_mode" in
+    -rwx*) ;;
+    *) echo "wifi hook is not executable ($hook_mode)" >&2; exit 1 ;;
+  esac
   rule=$(tar -xOf "$repo/kobo-sync/dist/KoboRoot.tgz" etc/udev/rules.d/99-dogear-wifi.rules)
   printf '%s\n' "$rule" | grep 'KERNEL==' | grep -q 'usb' && exit 1
   printf '%s\n' "$rule" | grep -q 'koblime' && exit 1
@@ -569,6 +601,119 @@ EOF
   test "$(bodies)" = "0" || exit 1
   grep -q "sqlite3 not found" "$DOG_ROOT/sync.log" || exit 1
 ) && ok sqlite-missing || bad sqlite-missing
+
+# Backup is written before any upload, including when Wi-Fi is down.
+(
+  new_case
+  echo down > "$DOG_WIFI_FILE"
+  run_sync manual
+  test "$(cat "$CASE/exit")" = "75" || exit 1
+  test "$(bodies)" = "0" || exit 1
+  test -f "$DOG_ROOT/backup/highlights.jsonl" || exit 1
+  python3 - "$DOG_ROOT/backup/highlights.jsonl" "$TOKEN" "$ANON" <<'PY'
+import json, pathlib, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+assert sys.argv[2] not in text
+assert sys.argv[3] not in text
+assert "file://" not in text
+assert "session-secret-do-not-upload" not in text
+assert "HIDDEN-SHOULD-NOT-UPLOAD" not in text
+assert "DOGEAR-SHOULD-NOT-UPLOAD" not in text
+rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+by_id = {row["kobo_bookmark_id"]: row for row in rows}
+assert set(by_id) == {"bm-1", "bm-note", "bm-notitle"}
+orange = by_id["bm-1"]
+assert orange["title"] == "The Orange Book"
+assert orange["author"] == "Ada Author"
+assert orange["text"] == 'UNIQUE-PASSAGE-ORANGE "quoted"\nnext line \u0007 bell \\ slash'
+assert orange["note"] == "a note with \\ backslash"
+assert orange["created"] == "2024-06-01T15:04:05Z"
+assert set(orange) == {"title", "author", "text", "note", "created", "kobo_bookmark_id"}
+assert by_id["bm-note"]["text"] == ""
+assert by_id["bm-note"]["note"] == "margin note"
+assert by_id["bm-notitle"]["title"] == ""
+PY
+  find "$DOG_ROOT/backup" -name '.*' | grep -q . && exit 1
+  grep -q "total=3" "$DOG_ROOT/last-status" || exit 1
+  grep -q "result=offline" "$DOG_ROOT/last-status" || exit 1
+  assert_clean
+) && ok backup-when-offline || bad backup-when-offline
+
+# A failed upload still leaves the backup, and a later identical sync does not rotate.
+(
+  new_case
+  printf '%s\n' 503 503 503 > "$DOG_CURL_DIR/codes"
+  run_sync manual
+  test "$(cat "$CASE/exit")" = "75" || exit 1
+  test -s "$DOG_ROOT/backup/highlights.jsonl" || exit 1
+  test "$(find "$DOG_ROOT/backup" -name 'highlights-*.jsonl' | wc -l | tr -d ' ')" = "0" || exit 1
+  grep -q "result=offline" "$DOG_ROOT/last-status" || exit 1
+  grep -q "uploaded=0" "$DOG_ROOT/last-status" || exit 1
+  printf '%s\n' 401 > "$DOG_CURL_DIR/codes"
+  run_sync manual
+  test "$(cat "$CASE/exit")" = "1" || exit 1
+  grep -q "result=auth" "$DOG_ROOT/last-status" || exit 1
+  test "$(find "$DOG_ROOT/backup" -name 'highlights-*.jsonl' | wc -l | tr -d ' ')" = "0" || exit 1
+  assert_clean
+) && ok backup-when-upload-fails || bad backup-when-upload-fails
+
+# Dated copies stay capped, and the latest file is the newest text.
+(
+  new_case
+  export DOG_BACKUP_KEEP=5
+  run_sync manual
+  test "$(cat "$CASE/exit")" = "0" || exit 1
+  i=1
+  while [ "$i" -le 6 ]; do
+    sqlite3 "$DOG_DB" "update Bookmark set Text = 'revision $i' where BookmarkID = 'bm-1';"
+    run_sync manual
+    test "$(cat "$CASE/exit")" = "0" || exit 1
+    i=$((i + 1))
+  done
+  files=$(find "$DOG_ROOT/backup" -maxdepth 1 -type f | wc -l | tr -d ' ')
+  test "$files" = "5" || exit 1
+  python3 - "$DOG_ROOT/backup/highlights.jsonl" <<'PY'
+import json, pathlib, sys
+rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
+orange = [row for row in rows if row["kobo_bookmark_id"] == "bm-1"][0]
+assert orange["text"] == "revision 6"
+PY
+  assert_clean
+) && ok backup-rotation || bad backup-rotation
+
+(
+  new_case
+  export DOG_TMP_FREE_KB=1
+  run_sync manual
+  test "$(cat "$CASE/exit")" = "1" || exit 1
+  test "$(bodies)" = "0" || exit 1
+  grep -q "not enough free space" "$DOG_ROOT/sync.log" || exit 1
+  test ! -e "$DOG_ROOT/backup/highlights.jsonl" || exit 1
+  if find "$DOG_WORK_PARENT" -name 'read.sqlite' | grep -q .; then exit 1; fi
+  unset DOG_TMP_FREE_KB
+  run_sync manual
+  test "$(cat "$CASE/exit")" = "0" || exit 1
+  test -s "$DOG_ROOT/backup/highlights.jsonl" || exit 1
+  assert_clean
+) && ok tmp-free-space || bad tmp-free-space
+
+(
+  new_case
+  run_sync manual
+  test "$(cat "$CASE/exit")" = "0" || exit 1
+  sh "$sync" last > "$CASE/last.out" 2> "$CASE/last.err"
+  grep -q "Last sync: ok" "$CASE/last.out" || exit 1
+  grep -q "3 uploaded, 3 total" "$CASE/last.out" || exit 1
+  if grep -q "$TOKEN" "$CASE/last.out" || grep -q "$ANON" "$CASE/last.out"; then exit 1; fi
+  printf '%s\n' "result=ok" "message=$TOKEN eyJhbGciOiJub25lIn0.eyJyb2xlIjoiYW5vbiJ9.sig" > "$DOG_ROOT/last-status"
+  sh "$sync" last > "$CASE/last.out"
+  if grep -q "$TOKEN" "$CASE/last.out"; then exit 1; fi
+  if grep -q "eyJhbGciOiJub25lIn0" "$CASE/last.out"; then exit 1; fi
+  grep -q "dogear_\[redacted\]" "$CASE/last.out" || exit 1
+  rm -f "$DOG_ROOT/last-status"
+  sh "$sync" last > "$CASE/last.out"
+  grep -q "Last sync: none" "$CASE/last.out" || exit 1
+) && ok last-sync-line || bad last-sync-line
 
 echo
 if [ "$failures" -eq 0 ]; then
